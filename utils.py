@@ -1,11 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
-
 import os
 import math
 import time
@@ -40,7 +32,6 @@ class RASampler(torch.utils.data.Sampler):
         self.num_samples = int(math.ceil(len(self.dataset) * 3.0 / self.num_replicas))
         # 重复采样后的总样本量
         self.total_size = self.num_samples * self.num_replicas
-        # self.num_selected_samples = int(math.ceil(len(self.dataset) / self.num_replicas))
         # 每个replica实际样本量，即不重复采样时的每个replica的样本量
         self.num_selected_samples = int(
             math.floor(len(self.dataset) // 256 * 256 / self.num_replicas)
@@ -48,7 +39,6 @@ class RASampler(torch.utils.data.Sampler):
         self.shuffle = shuffle
 
     def __iter__(self):
-        # deterministically shuffle based on epoch
         g = torch.Generator()
         g.manual_seed(self.epoch)
         if self.shuffle:
@@ -56,7 +46,6 @@ class RASampler(torch.utils.data.Sampler):
         else:
             indices = list(range(len(self.dataset)))
 
-        # add extra samples to make it evenly divisible
         indices = [ele for ele in indices for i in range(3)]  # 重复3次
         indices += indices[: (self.total_size - len(indices))]
         assert len(indices) == self.total_size
@@ -74,9 +63,6 @@ class RASampler(torch.utils.data.Sampler):
         self.epoch = epoch
 
 class SmoothedValue(object):
-    """Track a series of values and provide access to smoothed values over a
-    window or the global series average.
-    """
 
     def __init__(self, window_size=20, fmt=None):
         if fmt is None:
@@ -92,9 +78,6 @@ class SmoothedValue(object):
         self.total += value * n
 
     def synchronize_between_processes(self):
-        """
-        Warning: does not synchronize the deque!
-        """
         if not is_dist_avail_and_initialized():
             return
         t = torch.tensor([self.count, self.total], dtype=torch.float64, device='cuda')
@@ -353,7 +336,6 @@ def save_on_master(*args, **kwargs):
     if is_main_process():
         torch.save(*args, **kwargs)
 
-
 def init_distributed_mode(args):
 
     if args.dist_on_itp:
@@ -552,25 +534,49 @@ def piecewise_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_ep
     return schedule
 
 
+# def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, model_ema=None):
+#     output_dir = Path(args.output_dir)
+#     epoch_name = str(epoch)
+#     checkpoint_paths = [output_dir / ('checkpoint-%s.pth' % epoch_name)]
+#     for checkpoint_path in checkpoint_paths:
+#         to_save = {
+#             'model': model_without_ddp.state_dict(),
+#             'optimizer': optimizer.state_dict(),
+#             'epoch': epoch,
+#             'scaler': loss_scaler.state_dict(),
+#             'args': args,
+#         }
 
-def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, model_ema=None):
-    output_dir = Path(args.output_dir)
+#         if model_ema is not None:
+#             to_save['model_ema'] = get_state_dict(model_ema)
+
+#         save_on_master(to_save, checkpoint_path)
+    
+#     if is_main_process() and isinstance(epoch, int):
+#         to_del = epoch - args.save_ckpt_num * args.save_ckpt_freq
+#         old_ckpt = output_dir / ('checkpoint-%s.pth' % to_del)
+#         if os.path.exists(old_ckpt):
+#             os.remove(old_ckpt)
+            
+def save_model(args,output_dir,input_shape, epoch, model, optimizer, loss_scaler, model_ema=None):
     epoch_name = str(epoch)
-    checkpoint_paths = [output_dir / ('checkpoint-%s.pth' % epoch_name)]
+    output_dir = Path(output_dir)
+    checkpoint_paths = [output_dir / ("checkpoint-%s.pth" % epoch_name)]
     for checkpoint_path in checkpoint_paths:
         to_save = {
-            'model': model_without_ddp.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'epoch': epoch,
+            "model": model,  # 保存模型
+            "optimizer": optimizer.state_dict(),  # 保存优化器状态
+            "epoch": epoch,  # 保存当前轮次
             'scaler': loss_scaler.state_dict(),
-            'args': args,
+            "input_shape": input_shape, # 保存输入形状
+            "args": args,  # 保存命令行参数
         }
-
         if model_ema is not None:
-            to_save['model_ema'] = get_state_dict(model_ema)
-
+            to_save["model_ema"] = get_state_dict(
+                model_ema
+            )  # 如果有指数移动平均模型，保存其状态
         save_on_master(to_save, checkpoint_path)
-    
+
     if is_main_process() and isinstance(epoch, int):
         to_del = epoch - args.save_ckpt_num * args.save_ckpt_freq
         old_ckpt = output_dir / ('checkpoint-%s.pth' % to_del)
@@ -578,7 +584,7 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, mo
             os.remove(old_ckpt)
 
 
-def auto_load_model(args, model, model_without_ddp, optimizer, loss_scaler, model_ema=None):
+def auto_load_model(args,model_without_ddp, optimizer, loss_scaler, model_ema=None):
     output_dir = Path(args.output_dir)
     if args.auto_resume and len(args.resume) == 0:
         import glob
@@ -598,12 +604,12 @@ def auto_load_model(args, model, model_without_ddp, optimizer, loss_scaler, mode
                 args.resume, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.resume, map_location='cpu')
-        for k in list(checkpoint["model"].keys()):
-            if "head" in k:
-                del checkpoint["model"][k]
+        # 删除head层权重
+        # for k in list(checkpoint["model"].keys()):
+        #     if "head" in k:
+        #         del checkpoint["model"][k]
 
-        model_without_ddp.load_state_dict(checkpoint['model'],strict=False)
-
+        model_without_ddp=checkpoint['model']
         print("Resume checkpoint %s" % args.resume)
         if 'optimizer' in checkpoint and 'epoch' in checkpoint:
             optimizer.load_state_dict(checkpoint['optimizer'])
@@ -619,3 +625,4 @@ def auto_load_model(args, model, model_without_ddp, optimizer, loss_scaler, mode
             if 'scaler' in checkpoint:
                 loss_scaler.load_state_dict(checkpoint['scaler'])
             print("With optim & sched!")
+    return model_without_ddp

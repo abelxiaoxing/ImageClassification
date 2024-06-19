@@ -6,26 +6,18 @@ import torch
 import torch.backends.cudnn as cudnn
 import json
 import os
-
 from pathlib import Path
-
 from timm.data.mixup import Mixup
 from timm.models import create_model
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 from timm.utils import ModelEma
 from optim_factory import create_optimizer, LayerDecayValueAssigner
-
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
-
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
 
 def str2bool(v):
-    """
-    Converts string to bool type; enables command line 
-    arguments in the format of '--arg1 true --arg2 false'
-    """
     if isinstance(v, bool):
         return v
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -39,103 +31,65 @@ def get_args_parser():
     parser = argparse.ArgumentParser('Training and evaluation script for image classification', add_help=False)
     parser.add_argument('--batch_size', default=128, type=int)
     parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--update_freq', default=1, type=int,help='gradient accumulation steps')
+    parser.add_argument('--update_freq', default=1, type=int)
     # Model parameters
     parser.add_argument('--RASampler',default=False, type=bool)
     parser.add_argument('--pretrained',default=True, type=bool)
-
     # eva02_tiny_patch14_224.mim_in22k,convnextv2_nano.fcmae_ft_in22k_in1k,levit_conv_128s.fb_dist_in1k,caformer_s18.sail_in22k,tiny_vit_5m_224.dist_in22k
     parser.add_argument('--model', default='eva02_tiny_patch14_224.mim_in22k', type=str, metavar='MODEL')
     parser.add_argument('--drop_path', type=float, default=0.05, metavar='PCT')
     parser.add_argument('--input_size', default=224, type=int)
-
     # EMA related parameters
     parser.add_argument('--model_ema', type=str2bool, default=True)
-    parser.add_argument('--model_ema_decay', type=float, default=0.9999, help='')
-    parser.add_argument('--model_ema_force_cpu', type=str2bool, default=False, help='')
-    parser.add_argument('--model_ema_eval', type=str2bool, default=False, help='Using ema to eval during training.')
+    parser.add_argument('--model_ema_decay', type=float, default=0.9999)
+    parser.add_argument('--model_ema_force_cpu', type=str2bool, default=False)
+    parser.add_argument('--model_ema_eval', type=str2bool, default=False)
     
     # Optimization parameters
     parser.add_argument('--opt', default='adamw', type=str, metavar='OPTIMIZER')
-    parser.add_argument('--opt_eps', default=1e-8, type=float, metavar='EPSILON',help='Optimizer Epsilon (default: 1e-8)')
-    parser.add_argument('--opt_betas', default=None, type=float, nargs='+', metavar='BETA',help='Optimizer Betas (default: None, use opt default)')
-    parser.add_argument('--clip_grad', type=float, default=None, metavar='NORM',help='Clip gradient norm (default: None, no clipping)')
+    parser.add_argument('--opt_eps', default=1e-8, type=float, metavar='EPSILON')
+    parser.add_argument('--opt_betas', default=None, type=float, nargs='+', metavar='BETA')
+    parser.add_argument('--clip_grad', type=float, default=None, metavar='NORM')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M')
     parser.add_argument('--weight_decay', type=float, default=5e-4)
     parser.add_argument('--weight_decay_end', type=float, default=None)
     parser.add_argument('--lr', type=float, default=1e-4, metavar='LR')
     parser.add_argument('--layer_decay', type=float, default=1.0)
-    parser.add_argument('--min_lr', type=float, default=1e-6, metavar='LR',
-                        help='lower lr bound for cyclic schedulers that hit 0 (1e-6)')
-    parser.add_argument('--warmup_epochs', type=int, default=1, metavar='N',
-                        help='epochs to warmup LR, if scheduler supports')
-    parser.add_argument('--warmup_steps', type=int, default=-1, metavar='N',
-                        help='num of steps to warmup LR, will overload warmup_epochs if set > 0')
+    parser.add_argument('--min_lr', type=float, default=1e-6, metavar='LR')
+    parser.add_argument('--warmup_epochs', type=int, default=1, metavar='N')
+    parser.add_argument('--warmup_steps', type=int, default=-1, metavar='N')
     
     # Augmentation parameters
-    parser.add_argument('--color_jitter', type=float, default=0.3, metavar='PCT',
-                        help='Color jitter factor (default: 0.4)')
-    parser.add_argument('--aa', type=str, default="", metavar='NAME',
-                        help='Use AutoAugment policy. "v0" or "original". " + "(default: rand-m9-mstd0.5-inc1)'),
-    parser.add_argument('--smoothing', type=float, default=0.1,
-                        help='Label smoothing (default: 0.1)')
-    parser.add_argument('--train_interpolation', type=str, default='bicubic',
-                        help='Training interpolation (random, bilinear, bicubic default: "bicubic")')
+    parser.add_argument('--color_jitter', type=float, default=0.3, metavar='PCT')
+    parser.add_argument('--aa', type=str, default="", metavar='NAME',help='"v0" or "original" or"rand-m9-mstd0.5-inc1"'),
+    parser.add_argument('--smoothing', type=float, default=0.1)
 
     # Evaluation parameters
     parser.add_argument('--crop_pct', type=float, default=None)
 
     # * Random Erase params
-    parser.add_argument('--reprob', type=float, default=0., metavar='PCT',
-                        help='Random erase prob (default: 0.25)')
-    parser.add_argument('--remode', type=str, default='pixel',
-                        help='Random erase mode (default: "pixel")')
-    parser.add_argument('--recount', type=int, default=1,
-                        help='Random erase count (default: 1)')
-    parser.add_argument('--resplit', type=str2bool, default=False,
-                        help='Do not random erase first (clean) augmentation split')
+    parser.add_argument('--reprob', type=float, default=0., metavar='PCT')
+    parser.add_argument('--remode', type=str, default='pixel')
+    parser.add_argument('--recount', type=int, default=1)
+    parser.add_argument('--resplit', type=str2bool, default=False)
 
     # * Mixup params
-    parser.add_argument('--mixup', type=float, default=0.,
-                        help='mixup alpha, mixup enabled if > 0.')
-    parser.add_argument('--cutmix', type=float, default=0.,
-                        help='cutmix alpha, cutmix enabled if > 0.')
-    parser.add_argument('--cutmix_minmax', type=float, nargs='+', default=None,
-                        help='cutmix min/max ratio, overrides alpha and enables cutmix if set (default: None)')
-    parser.add_argument('--mixup_prob', type=float, default=1.0,
-                        help='Probability of performing mixup or cutmix when either/both is enabled')
-    parser.add_argument('--mixup_switch_prob', type=float, default=0.5,
-                        help='Probability of switching to cutmix when both mixup and cutmix enabled')
-    parser.add_argument('--mixup_mode', type=str, default='batch',
-                        help='How to apply mixup/cutmix params. Per "batch", "pair", or "elem"')
-
-    # * Finetuning params
-    parser.add_argument('--finetune', default='',
-                        help='finetune from checkpoint')
-    parser.add_argument('--head_init_scale', default=1.0, type=float,
-                        help='classifier head initial scale, typically adjusted in fine-tuning')
-    parser.add_argument('--model_key', default='model|module', type=str,
-                        help='which key to load from saved state dict, usually model or model_ema')
-    parser.add_argument('--model_prefix', default='', type=str)
+    parser.add_argument('--mixup', type=float, default=0.)
+    parser.add_argument('--cutmix', type=float, default=0.)
+    parser.add_argument('--cutmix_minmax', type=float, nargs='+', default=None)
+    parser.add_argument('--mixup_prob', type=float, default=1.0)
+    parser.add_argument('--mixup_switch_prob', type=float, default=0.5)
+    parser.add_argument('--mixup_mode', type=str, default='batch',help='"batch", "pair", or "elem"')
 
     # Dataset parameters
-    parser.add_argument('--data_path', default='/home/abelxiaoxing/public/datas/classification/CatsDogs_mini', type=str,
-                        help='dataset path')
-    parser.add_argument('--nb_classes', default=2, type=int,
-                        help='number of the classification types')
-    parser.add_argument('--imagenet_default_mean_and_std', type=str2bool, default=True)
-    parser.add_argument('--data_set', default='image_folder', choices=['CIFAR', 'IMNET', 'image_folder'],
-                        type=str, help='ImageNet dataset path')
-    parser.add_argument('--output_dir', default='output',
-                        help='path where to save, empty for no saving')
-    parser.add_argument('--log_dir', default=None,
-                        help='path where to tensorboard log')
-    parser.add_argument('--device', default='cuda:0',
-                        help='device to use for training / testing')
+    parser.add_argument('--data_path', default='/home/abelxiaoxing/public/datas/classification/CatsDogs_mini', type=str)
+    parser.add_argument('--train_split_rato', default=0., type=float,help='0为手动分割，其他0到1的浮点数为训练集自动分割的比例')
+    parser.add_argument('--num_classes', default=2, type=int)
+    parser.add_argument('--output_dir', default='output')
+    parser.add_argument('--log_dir', default=None)
+    parser.add_argument('--device', default='cuda:0')
     parser.add_argument('--seed', default=88, type=int)
-
-    parser.add_argument('--resume', default='',
-                        help='resume from checkpoint')
+    parser.add_argument('--resume', default='')
     parser.add_argument('--auto_resume', type=str2bool, default=True)
     parser.add_argument('--save_ckpt', type=str2bool, default=True)
     parser.add_argument('--save_ckpt_freq', default=1, type=int)
@@ -149,7 +103,7 @@ def get_args_parser():
                         help='Enabling distributed evaluation')
     parser.add_argument('--disable_eval', type=str2bool, default=False,
                         help='Disabling evaluation during training')
-    parser.add_argument('--num_workers', default=20, type=int)
+    parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--pin_mem', type=str2bool, default=True,
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
 
@@ -185,7 +139,7 @@ def main(args):
     np.random.seed(seed)
     cudnn.benchmark = True
 
-    dataset_train, args.nb_classes = build_dataset(is_train=True, args=args)
+    dataset_train, args.num_classes = build_dataset(is_train=True, args=args)
     if args.disable_eval:
         args.dist_eval = False
         dataset_val = None
@@ -229,7 +183,7 @@ def main(args):
         pin_memory=args.pin_mem,
         drop_last=True,
     )
-
+    input_shape = [1,] + list(next(iter(data_loader_train))[0].shape[1:])
     if dataset_val is not None:
         data_loader_val = torch.utils.data.DataLoader(
             dataset_val, sampler=sampler_val,
@@ -248,11 +202,11 @@ def main(args):
         mixup_fn = Mixup(
             mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
             prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
-            label_smoothing=args.smoothing, num_classes=args.nb_classes)
+            label_smoothing=args.smoothing, num_classes=args.num_classes)
 
     model_kwargs = {
         'pretrained': args.pretrained,
-        'num_classes': args.nb_classes
+        'num_classes': args.num_classes
     }
 
     if args.model.startswith('efficientvit'):
@@ -263,37 +217,7 @@ def main(args):
     model = create_model(
         args.model, 
         **model_kwargs
-        # head_init_scale=args.head_init_scale,
         )
-
-
-
-    if args.finetune:
-        if args.finetune.startswith('https'):
-            checkpoint = torch.hub.load_state_dict_from_url(
-                args.finetune, map_location='cpu', check_hash=True)
-        else:
-            checkpoint = torch.load(args.finetune, map_location='cpu')
-
-        print("Load ckpt from %s" % args.finetune)
-        checkpoint_model = None
-        for model_key in args.model_key.split('|'):
-            if model_key in checkpoint:
-                checkpoint_model = checkpoint[model_key]
-                print("Load state_dict by model_key = %s" % model_key)
-                break
-        if checkpoint_model is None:
-            checkpoint_model = checkpoint
-        state_dict = model.state_dict()
-        for k in ['head.weight', 'head.bias']:
-            if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
-                print(f"Removing key {k} from pretrained checkpoint")
-                del checkpoint_model[k]
-        utils.load_state_dict(model, checkpoint_model, prefix=args.model_prefix)
-        weights_dict = torch.load(args.weights, map_location=device)["model"]
-        for k in list(weights_dict.keys()):
-            if "head" in k:
-                del weights_dict[k]
 
 
     model.to(device)
@@ -362,8 +286,8 @@ def main(args):
         criterion = torch.nn.CrossEntropyLoss()
     print("criterion = %s" % str(criterion))
 
-    utils.auto_load_model(
-        args=args, model=model, model_without_ddp=model_without_ddp,
+    model_without_ddp = utils.auto_load_model(
+        args=args,model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
 
     if args.eval:
@@ -391,22 +315,36 @@ def main(args):
             log_writer=log_writer, wandb_logger=wandb_logger, start_steps=epoch * num_training_steps_per_epoch,
             lr_schedule_values=lr_schedule_values, wd_schedule_values=wd_schedule_values,
             num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
-            use_amp=args.use_amp,num_classes=args.nb_classes
+            use_amp=args.use_amp,num_classes=args.num_classes
         )
         if args.output_dir and args.save_ckpt:
             if (epoch + 1) % args.save_ckpt_freq == 0 or epoch + 1 == args.epochs:
                 utils.save_model(
-                    args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                    loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema)
+                    args=args,
+                    output_dir=args.output_dir,
+                    input_shape=input_shape,
+                    model=model_without_ddp,
+                    optimizer=optimizer,
+                    epoch=epoch,
+                    loss_scaler=loss_scaler,
+                    model_ema=model_ema,
+                )
         if data_loader_val is not None:
-            test_stats = evaluate(data_loader_val, model, device,num_classes=args.nb_classes, use_amp=args.use_amp)
+            test_stats = evaluate(data_loader_val, model, device,num_classes=args.num_classes, use_amp=args.use_amp)
             print(f"Accuracy of the model on the {len(dataset_val)} test images: {test_stats['acc1']:.3f}%")
             if max_accuracy < test_stats["acc1"]:
                 max_accuracy = test_stats["acc1"]
                 if args.output_dir and args.save_ckpt:
                     utils.save_model(
-                        args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                        loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
+                        args=args,
+                        output_dir=args.output_dir,
+                        input_shape=input_shape,
+                        model=model_without_ddp,
+                        optimizer=optimizer,
+                        epoch='best',
+                        loss_scaler=loss_scaler,
+                        model_ema=model_ema,
+                    )
             print(f'Max accuracy: {max_accuracy:.3f}%')
 
             if log_writer is not None:
@@ -427,8 +365,15 @@ def main(args):
                     max_accuracy_ema = test_stats_ema["acc1"]
                     if args.output_dir and args.save_ckpt:
                         utils.save_model(
-                            args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                            loss_scaler=loss_scaler, epoch="best-ema", model_ema=model_ema)
+                            args=args,
+                            output_dir=args.output_dir,
+                            input_shape=input_shape,
+                            model=model_without_ddp,
+                            optimizer=optimizer,
+                            epoch='best-ema',
+                            loss_scaler=loss_scaler,
+                            model_ema=model_ema,
+                        )
                     print(f'Max EMA accuracy: {max_accuracy_ema:.2f}%')
                 if log_writer is not None:
                     log_writer.update(test_acc1_ema=test_stats_ema['acc1'], head="perf", step=epoch)
@@ -456,7 +401,6 @@ def main(args):
     print('Training time {}'.format(total_time_str))
 
 if __name__ == '__main__':
-    # torch.multiprocessing.set_start_method('spawn', force=True)
     parser = argparse.ArgumentParser('Classification training and evaluation script', parents=[get_args_parser()])
     args = parser.parse_args()
     if args.output_dir:
