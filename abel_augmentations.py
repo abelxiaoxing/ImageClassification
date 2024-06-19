@@ -6,7 +6,6 @@ import PIL
 import numpy as np
 import torch
 from PIL import Image
-
 _IMAGENET_PCA = {
     "eigval": [0.2175, 0.0188, 0.0045],
     "eigvec": [
@@ -31,11 +30,11 @@ def ShearX(img, min_val, max_val):  # [-0.3, 0.3]
         v = -v
     return img.transform(img.size, PIL.Image.AFFINE, (1, v, 0, 0, 1, 0))
 
-
 def ShearY(img, min_val, max_val):  # [-0.3, 0.3]
     v = random.uniform(min_val, max_val)
+    if random.random() > 0.5:
+        v = -v
     return img.transform(img.size, PIL.Image.AFFINE, (1, 0, 0, v, 1, 0))
-
 
 def TranslateX(img, min_val, max_val):  # [-150, 150] => percentage: [-0.45, 0.45]
     v = random.uniform(min_val, max_val)
@@ -75,6 +74,7 @@ def Rotate(img, min_val, max_val):  # [-30, 30]
 
 
 def AutoContrast(img, _, __):
+    # img = set_dark_pixels_to_zero(img, 8, 12)
     return PIL.ImageOps.autocontrast(img)
 
 
@@ -83,6 +83,7 @@ def Invert(img, _, __):
 
 
 def Equalize(img, _, __):
+    # img=set_dark_pixels_to_zero(img, 8, 12)
     return PIL.ImageOps.equalize(img)
 
 
@@ -90,7 +91,8 @@ def Flip(img, _, __):  # not from the paper
     return PIL.ImageOps.mirror(img)
 
 
-def set_dark_pixels_to_zero(img, _, threshold):
+def set_dark_pixels_to_zero(img, min, max):
+    threshold=random.randint(min,max)
     lut = []
     for i in range(256):
         if i < threshold:
@@ -202,23 +204,22 @@ def Identity(img, _, __):
 
 def augment_list():
     l = [
-        # (set_dark_pixels_to_zero, 0, 30),
-        (Identity, 0.0, 1.0),
-        (Identity, 0.0, 1.0),
-        (AutoContrast, 0, 1),
-        (Equalize, 0, 1),
-        (Invert, 0, 1),
-        # (Rotate, 0, 2.0),
-        (Posterize, 0, 8),
-        # (Anti_Solarize, 0, 50),
-        (Solarize, 10, 40),
-        (SolarizeAdd, 0, 50),
-        (Contrast, 0.6, 1.9),
-        (Brightness, 0.5, 1.9),
+        # (set_dark_pixels_to_zero, 0, 10),
+        # (Identity, 0.0, 1.0),
+        # (AutoContrast, 0, 1),
+        # (Equalize, 0, 1),
+        # (Invert, 0, 1),
+        # (Rotate, 0, 90),
+        # (Posterize, 0, 8),
+        # (Anti_Solarize, 0, 100),
+        # (Solarize, 0, 50),
+        # (SolarizeAdd, 0, 50),
+        # (Contrast, 0.6, 1.9),
+        # (Brightness, 0.5, 1.9),
         (Sharpness, 0.4, 1.9),
         (ShearX, 0.0, 0.1),
         (ShearY, 0.0, 0.1),
-        # (TranslateXabs, 0.0, 10),
+        # (TranslateXabs, 0.0, 5),
         # (TranslateYabs, 0.0, 10),
     ]
 
@@ -316,9 +317,10 @@ class AbelAugment:
         self.augment_list = augment_list()
 
     def __call__(self, img):
+        random.seed() 
         ops = random.choices(self.augment_list, k=self.n)
         if random.random() < 0.3:
-            img = set_dark_pixels_to_zero(img, 1, 5)
+            img = set_dark_pixels_to_zero(img, 1, random.randint(1,10))
         if random.random() < 0.1:
             return img
         for op, min_val, max_val in ops:
@@ -329,5 +331,5 @@ class AbelAugment:
 
 class Dark2zero:
     def __call__(self, img):
-        img = set_dark_pixels_to_zero(img, 1, 5)
+        img = set_dark_pixels_to_zero(img, 1, 10)
         return img
