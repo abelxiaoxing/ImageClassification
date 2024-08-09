@@ -19,5 +19,7 @@
 + 将pth权重文件转换成onnx文件
 ### detection.py & server.py
 + 与c#进行socket通讯
+### ImagePreprocessing_dll.cs
++ 数据预处理后保存成动态链接库给c#使用
 ### Others
 + 如果要使用自己的数据集，请按照花分类数据集的文件结构进行摆放(即一个类别对应一个文件夹)，并且将训练以及预测脚本中的`num_classes`设置成你自己数据的类别数
