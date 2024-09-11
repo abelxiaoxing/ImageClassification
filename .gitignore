@@ -1,0 +1,6 @@
+train_cls/
+train_det/
+train_NumericalRegression/
+val_cls/
+val_det/
+val_NumericalRegression/

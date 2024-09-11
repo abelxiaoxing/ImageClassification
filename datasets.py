@@ -8,15 +8,61 @@ from abel_augmentations import AbelAugment
 import json
 from pathlib import Path
 from torch.utils.data import random_split
+from PIL import Image
+import cv2
+import numpy as np
 
-# 分割数据集为训练集和验证集
-def split_dataset(root, train_ratio=0.9):
-    """将数据集划分为训练集和验证集。"""
-    dataset = datasets.ImageFolder(root)  # 读取数据集
-    num_train = int(len(dataset) * train_ratio)  # 计算训练集的大小
-    num_val = len(dataset) - num_train  # 计算验证集的大小
-    train_dataset, val_dataset = random_split(dataset, [num_train, num_val])  # 随机划分数据集
-    return train_dataset, val_dataset, dataset.class_to_idx  # 返回训练集、验证集和类别索引
+# 将数据集划分为训练集和验证集，确保每个类别的样本数量相等。
+def split_dataset(root, train_ratio=0.5):
+    dataset = datasets.ImageFolder(root)
+    class_indices = dataset.class_to_idx
+    class_samples = {class_name: [] for class_name in class_indices}
+
+    # 将样本按类别分组
+    for idx, (img, label) in enumerate(dataset):
+        class_name = list(class_indices.keys())[list(class_indices.values()).index(label)]
+        class_samples[class_name].append(idx)
+
+    train_indices, val_indices = [], []
+
+    # 按类别划分训练集和验证集
+    min_class_size = min(len(indices) for indices in class_samples.values())  # 找到最小类别样本数量
+    val_size_per_class = min_class_size - int(min_class_size * train_ratio)  # 计算每个类别的验证集样本数量
+
+    for class_name, indices in class_samples.items():
+        random.shuffle(indices)  # 打乱样本顺序
+        train_indices.extend(indices[:-val_size_per_class]) 
+        val_indices.extend(indices[-val_size_per_class:])  
+
+    train_dataset = torch.utils.data.Subset(dataset, train_indices) 
+    val_dataset = torch.utils.data.Subset(dataset, val_indices)  
+
+    # 打印每个类别在训练集和验证集中的样本数量
+    train_class_counts = {class_name: 0 for class_name in class_indices}
+    val_class_counts = {class_name: 0 for class_name in class_indices}
+
+    for idx in train_indices:
+        _, label = dataset[idx]
+        class_name = list(class_indices.keys())[list(class_indices.values()).index(label)]
+        train_class_counts[class_name] += 1
+
+    for idx in val_indices:
+        _, label = dataset[idx]
+        class_name = list(class_indices.keys())[list(class_indices.values()).index(label)]
+        val_class_counts[class_name] += 1
+
+    print("训练集每个类别的样本数量:", train_class_counts)
+    print("验证集每个类别的样本数量:", val_class_counts)
+
+    return train_dataset, val_dataset, class_indices
+
+# # 随机分割数据集为训练集和验证集
+# def split_dataset(root, train_ratio=0.9):
+#     dataset = datasets.ImageFolder(root) 
+#     num_train = int(len(dataset) * train_ratio)
+#     num_val = len(dataset) - num_train
+#     train_dataset, val_dataset = random_split(dataset, [num_train, num_val])
+#     return train_dataset, val_dataset, dataset.class_to_idx
 
 # 构建数据集
 def build_dataset(is_train, args):
@@ -41,7 +87,7 @@ def build_dataset(is_train, args):
             dict((val, key) for key, val in class_indices.items()), indent=4
         )
         with open(
-            Path(str(args.output_dir) + "/class_indices.json"), "w"
+            Path("./train_cls/output/class_indices.json"), "w"
         ) as f:
             f.write(json_str)  # 将类别索引保存为JSON文件
         num_classes = args.num_classes  # 获取类别数量
@@ -64,7 +110,7 @@ def build_dataset(is_train, args):
             dict((val, key) for key, val in class_indices.items()), indent=4
         )
         with open(
-            Path(str(args.output_dir) + "/class_indices.json"), "w"
+            Path("./train_cls/output/class_indices.json"), "w"
         ) as f:
             f.write(json_str)  # 将类别索引保存为JSON文件
 
@@ -99,7 +145,6 @@ def build_transform(is_train, args):
         )
         if not resize_im:
             transform.transforms[0] = transforms.RandomCrop(args.input_size, padding=4)
-        # transform.transforms.insert(0,MyAugmentation(1))
         return transform
 
     t = []
@@ -124,28 +169,3 @@ def build_transform(is_train, args):
     t.append(transforms.ToTensor())
     t.append(transforms.Normalize(mean, std))
     return transforms.Compose(t)
-
-
-class MyAugmentation(torch.nn.Module):
-    def __init__(self, size=2, prob=0.5):
-        super().__init__()
-        self.size = random.randint(0, size)
-        self.size = size
-        self.prob = prob
-        self.transform_list = [
-            transforms.RandomRotation(90, expand=True),
-            AbelAugment(1),
-            transforms.GaussianBlur(kernel_size=random.choice([1, 3, 5])),
-            transforms.RandomPerspective(
-                distortion_scale=random.uniform(0, 0.4), p=self.prob, fill=0
-            ),
-            transforms.ElasticTransform(alpha=random.uniform(0, 10)),
-            transforms.RandomVerticalFlip(),
-            transforms.RandomInvert(p=self.prob),
-        ]
-
-    def forward(self, x):
-        for _ in range(self.size):
-            transform = transforms.RandomApply(self.transform_list, p=self.prob)
-            x = transform(x)
-        return x

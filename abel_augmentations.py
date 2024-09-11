@@ -1,5 +1,3 @@
-# code in this file is adpated from rpmcruz/autoaugment
-# https://github.com/rpmcruz/autoaugment/blob/master/transformations.py
 import random
 
 import PIL

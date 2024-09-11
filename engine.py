@@ -1,11 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
-
 import math
 from typing import Iterable, Optional
 import torch
@@ -39,8 +31,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             step = data_iter_step // update_freq
             if step >= num_training_steps_per_epoch:
                 continue
-            it = start_steps + step  # global training iteration
-            # Update LR & WD for the first acc
+            it = start_steps + step
             if lr_schedule_values is not None or wd_schedule_values is not None and data_iter_step % update_freq == 0:
                 for i, param_group in enumerate(optimizer.param_groups):
                     if lr_schedule_values is not None:
@@ -150,7 +141,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     for i in range(num_classes):
         precision = true_positives[i] / (true_positives[i] + false_positives[i]) if true_positives[i] + false_positives[i] > 0 else 0
         recall = true_positives[i] / (true_positives[i] + false_negatives[i]) if true_positives[i] + false_negatives[i] > 0 else 0
-        print(f'Class {i}: Precision: {precision:.3f}, Recall: {recall:.3f}')
+        print(f'Class {i}: Precision: {precision:.5f}, Recall: {recall:.5f}')
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
@@ -165,7 +156,9 @@ def evaluate(data_loader, model, device, num_classes, use_amp=False):
 
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Val:'
-
+    # 初始化用于存储平均精确率和召回率的 Meter 对象
+    metric_logger.add_meter('avg_precision', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    metric_logger.add_meter('avg_recall', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     # 切换到评估模式
     model.eval()
     # for data_iter_step, (images, target) in enumerate(data_loader):
@@ -199,17 +192,19 @@ def evaluate(data_loader, model, device, num_classes, use_amp=False):
         batch_size = images.shape[0]
         metric_logger.update(loss=loss.item())
         metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
-        metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+        # metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
 
     metric_logger.synchronize_between_processes()
-    # print('* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
-    #       .format(top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss))
-
     # 计算并打印每类的精确率和召回率
     for i in range(num_classes):
         precision = true_positives[i] / (true_positives[i] + false_positives[i]) if true_positives[i] + false_positives[i] > 0 else 0
         recall = true_positives[i] / (true_positives[i] + false_negatives[i]) if true_positives[i] + false_negatives[i] > 0 else 0
-        print(f'Class {i}: Precision: {precision:.3f}, Recall: {recall:.3f}')
+        print(f'Class {i}: Precision: {precision:.5f}, Recall: {recall:.5f}')
+        metric_logger.meters['avg_precision'].update(precision)
+        metric_logger.meters['avg_recall'].update(recall)
 
+    avg_precision = metric_logger.meters['avg_precision'].global_avg
+    avg_recall = metric_logger.meters['avg_recall'].global_avg
+    print(f'Average Precision: {avg_precision:.5f}, Average Recall: {avg_recall:.5f}')
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
