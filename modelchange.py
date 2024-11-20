@@ -20,6 +20,20 @@ def dynamic_quantize_model(model_weight_path, quantize_output_path, dtype, devic
     print(f"Dynamic quantized model saved as {quantize_output_path}")
 
 
+def pth2jit(
+        model_weight_path="train_cls/output/checkpoint-24.pth", 
+        device="cuda",
+        jit_output_path="best_model.pth"
+    ):
+    checkpoint = torch.load(model_weight_path, map_location=device) 
+    model = checkpoint["model"]
+    model.eval()
+    input_shape = checkpoint["input_shape"]
+    input = torch.rand(*input_shape).to(device)
+    traced_model = torch.jit.trace(model, input)
+    torch.jit.save(traced_model, jit_output_path)
+    print(f"TorchScript model saved as {jit_output_path}")
+
 def pth2onnx(
     model_weight_path="train_cls/output/checkpoint-best.pth",
     device="cuda",

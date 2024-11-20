@@ -583,8 +583,7 @@ def auto_load_model(args,model_without_ddp, optimizer, loss_scaler, model_ema=No
         # for k in list(checkpoint["model"].keys()):
         #     if "head" in k:
         #         del checkpoint["model"][k]
-
-        model_without_ddp=checkpoint['model']
+        model_without_ddp.load_state_dict(checkpoint['model'].state_dict())
         print("Resume checkpoint %s" % args.resume)
         if 'optimizer' in checkpoint and 'epoch' in checkpoint:
             optimizer.load_state_dict(checkpoint['optimizer'])
