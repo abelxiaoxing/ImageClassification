@@ -4,3 +4,4 @@ train_NumericalRegression/
 val_cls/
 val_det/
 val_NumericalRegression/
+__pycache__/
