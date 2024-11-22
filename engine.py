@@ -35,7 +35,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             if lr_schedule_values is not None or wd_schedule_values is not None and data_iter_step % update_freq == 0:
                 for i, param_group in enumerate(optimizer.param_groups):
                     if lr_schedule_values is not None:
-                        param_group["lr"] = lr_schedule_values[it] * param_group["lr_scale"]
+                        param_group["lr"] = lr_schedule_values[it]
                     if wd_schedule_values is not None and param_group["weight_decay"] > 0:
                         param_group["weight_decay"] = wd_schedule_values[it]
 
@@ -46,7 +46,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 samples, targets = mixup_fn(samples, targets)
 
             if use_amp:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast('cuda'):
                     output = model(samples)
                     loss = criterion(output, targets)
             else: # full precision
@@ -176,7 +176,7 @@ def evaluate(data_loader, model, device, num_classes, use_amp=False):
 
         # 计算输出
         if use_amp:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 output = model(images)
                 loss = criterion(output, target)
         else:

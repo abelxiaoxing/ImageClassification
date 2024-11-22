@@ -65,60 +65,68 @@ def split_dataset(root, train_ratio=0.5):
 #     return train_dataset, val_dataset, dataset.class_to_idx
 
 # 构建数据集
-def build_dataset(is_train, args):
-    transform = build_transform(is_train, args)  # 构建数据转换
+def build_dataset(args):
+    # 构建训练集和验证集的转换
+    train_transform = build_transform(True, args)  # 训练集转换
+    val_transform = build_transform(False, args)   # 验证集转换
 
-    print("Transform = ")
-    if isinstance(transform, tuple):  # 打印转换信息
-        for trans in transform:
+    print("Train Transform = ")
+    if isinstance(train_transform, tuple):  # 打印转换信息
+        for trans in train_transform:
             print(" - - - - - - - - - - ")
             for t in trans.transforms:
                 print(t)
     else:
-        for t in transform.transforms:
+        for t in train_transform.transforms:
+            print(t)
+    print("---------------------------")
+
+    print("Validation Transform = ")
+    if isinstance(val_transform, tuple):
+        for trans in val_transform:
+            print(" - - - - - - - - - - ")
+            for t in trans.transforms:
+                print(t)
+    else:
+        for t in val_transform.transforms:
             print(t)
     print("---------------------------")
 
     if args.train_split_rato == 0:  # 如果数据集是手动设置
-        root = os.path.join(args.data_path, "train" if is_train else "val")  # 根据训练或验证选择路径
-        dataset = datasets.ImageFolder(root, transform=transform)  # 创建数据集
-        class_indices = dataset.class_to_idx  # 获取类别索引
+        # 手动设置训练集和验证集路径
+        train_root = os.path.join(args.data_path, "train")
+        val_root = os.path.join(args.data_path, "val")
+
+        # 加载训练集和验证集
+        train_dataset = datasets.ImageFolder(train_root, transform=train_transform)
+        val_dataset = datasets.ImageFolder(val_root, transform=val_transform)
+        
+        # 获取类别索引（从训练集获取）
+        class_indices = train_dataset.class_to_idx
+        # 保存类别索引为JSON文件
         json_str = json.dumps(
             dict((val, key) for key, val in class_indices.items()), indent=4
         )
-        with open(
-            Path("./train_cls/output/class_indices.json"), "w"
-        ) as f:
-            f.write(json_str)  # 将类别索引保存为JSON文件
-        num_classes = args.num_classes  # 获取类别数量
-        assert len(dataset.class_to_idx) == num_classes  # 确认类别数量一致
+        with open(Path("./train_cls/output/class_indices.json"), "w") as f:
+            f.write(json_str)
+        num_classes = len(dataset.class_to_idx)
     else:  # 如果数据集是自动生成
         dataset_root = args.data_path
         train_ratio = args.train_split_rato
-        train_dataset, val_dataset, class_indices = split_dataset(
-            dataset_root, train_ratio
-        )
+        train_dataset, val_dataset, class_indices = split_dataset(dataset_root, train_ratio)
 
-        if is_train:
-            dataset = train_dataset
-        else:
-            dataset = val_dataset
-
-        dataset.dataset.transform = transform  # 应用转换到原始数据集
-
+        # 应用转换到训练集和验证集
+        train_dataset.dataset.transform = train_transform
+        val_dataset.dataset.transform = val_transform
+        # 保存类别索引为JSON文件
         json_str = json.dumps(
             dict((val, key) for key, val in class_indices.items()), indent=4
         )
-        with open(
-            Path("./train_cls/output/class_indices.json"), "w"
-        ) as f:
-            f.write(json_str)  # 将类别索引保存为JSON文件
-
-        num_classes = args.num_classes  # 获取类别数量
-        assert len(class_indices) == num_classes  # 确认类别数量一致
+        with open(Path("./train_cls/output/class_indices.json"), "w") as f:
+            f.write(json_str)
+        num_classes = len(class_indices)
     print("Number of the class = %d" % num_classes)  # 打印类别数量
-
-    return dataset, num_classes
+    return train_dataset, val_dataset, num_classes
 
 
 def build_transform(is_train, args):

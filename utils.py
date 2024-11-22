@@ -428,7 +428,7 @@ class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
 
     def __init__(self):
-        self._scaler = torch.cuda.amp.GradScaler()
+        self._scaler = torch.amp.GradScaler('cuda')
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
         self._scaler.scale(loss).backward(create_graph=create_graph)
@@ -578,12 +578,12 @@ def auto_load_model(args,model_without_ddp, optimizer, loss_scaler, model_ema=No
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.resume, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.resume, map_location='cpu')
+            checkpoint = torch.load(args.resume, map_location='cpu',weights_only=False)
         # 删除head层权重
         # for k in list(checkpoint["model"].keys()):
         #     if "head" in k:
         #         del checkpoint["model"][k]
-        model_without_ddp.load_state_dict(checkpoint['model'].state_dict())
+        model_without_ddp.load_state_dict(checkpoint['model'].state_dict(),strict=True)
         print("Resume checkpoint %s" % args.resume)
         if 'optimizer' in checkpoint and 'epoch' in checkpoint:
             optimizer.load_state_dict(checkpoint['optimizer'])
@@ -593,9 +593,9 @@ def auto_load_model(args,model_without_ddp, optimizer, loss_scaler, model_ema=No
                 assert args.eval, 'Does not support resuming with checkpoint-best'
             if hasattr(args, 'model_ema') and args.model_ema:
                 if 'model_ema' in checkpoint.keys():
-                    model_ema.ema.load_state_dict(checkpoint['model_ema'])
+                    model_ema.module.load_state_dict(checkpoint['model_ema'])
                 else:
-                    model_ema.ema.load_state_dict(checkpoint['model'])
+                    model_ema.module.load_state_dict(checkpoint['model'])
             if 'scaler' in checkpoint:
                 loss_scaler.load_state_dict(checkpoint['scaler'])
             print("With optim & sched!")

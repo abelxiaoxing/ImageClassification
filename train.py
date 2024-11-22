@@ -10,8 +10,8 @@ from pathlib import Path
 from timm.data.mixup import Mixup
 from timm.models import create_model
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
-from timm.utils import ModelEma
-from optim_factory import create_optimizer, LayerDecayValueAssigner
+from timm.utils import ModelEmaV3
+from optim_factory import create_optimizer
 from datasets import build_dataset
 from engine import train_one_epoch, evaluate
 from utils import NativeScalerWithGradNormCount as NativeScaler
@@ -34,46 +34,35 @@ def get_args_parser():
         "Training and evaluation script for image classification", add_help=False
     )
     parser.add_argument("--batch_size", default=128, type=int)
-    parser.add_argument("--epochs", default=100, type=int)
+    parser.add_argument("--epochs", default=600, type=int)
     parser.add_argument("--update_freq", default=1, type=int)
     # Model parameters
     parser.add_argument("--RASampler", default=False, type=bool)
-    parser.add_argument("--pretrained", default=True, type=bool)
+    parser.add_argument("--pretrained", default=False, type=bool)
     # eva02_tiny_patch14_224.mim_in22k,convnextv2_nano.fcmae_ft_in22k_in1k,levit_conv_128s.fb_dist_in1k,caformer_ s18.sail_in22k,tiny_vit_5m_224.dist_in22k,efficientvit_m0
     parser.add_argument("--model", default="eva02_tiny_patch14_224.mim_in22k", type=str, metavar="MODEL")
     parser.add_argument("--drop_path", type=float, default=0.05, metavar="PCT")
     parser.add_argument("--input_size", default=224, type=int)
     # EMA related parameters
     parser.add_argument("--model_ema", type=str2bool, default=True)
-    parser.add_argument("--model_ema_decay", type=float, default=0.9999)
-    parser.add_argument("--model_ema_force_cpu", type=str2bool, default=False)
-    parser.add_argument("--model_ema_eval", type=str2bool, default=False)
+    parser.add_argument("--model_ema_eval", type=str2bool, default=True)
 
     # Optimization parameters
-    parser.add_argument("--opt", default="adamw", type=str, metavar="OPTIMIZER")
-    parser.add_argument("--opt_eps", default=1e-8, type=float, metavar="EPSILON")
-    parser.add_argument(
-        "--opt_betas", default=None, type=float, nargs="+", metavar="BETA"
-    )
-    parser.add_argument("--clip_grad", type=float, default=None, metavar="NORM")
-    parser.add_argument("--momentum", type=float, default=0.9, metavar="M")
+    parser.add_argument("--opt", default="adamw", type=str)
+    parser.add_argument("--opt_eps", default=1e-8, type=float)
+    parser.add_argument("--opt_betas", default=None, type=float)
+    parser.add_argument("--clip_grad", type=float, default=None)
+    parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=5e-4)
     parser.add_argument("--weight_decay_end", type=float, default=5e-6)
-    parser.add_argument("--lr", type=float, default=1e-4, metavar="LR")
-    parser.add_argument("--layer_decay", type=float, default=1.0)
-    parser.add_argument("--min_lr", type=float, default=1e-6, metavar="LR")
-    parser.add_argument("--warmup_epochs", type=int, default=5, metavar="N")
-    parser.add_argument("--warmup_steps", type=int, default=-1, metavar="N")
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--min_lr", type=float, default=1e-6)
+    parser.add_argument("--warmup_epochs", type=int, default=5)
+    parser.add_argument("--warmup_steps", type=int, default=-1)
 
     # Augmentation parameters
-    parser.add_argument("--color_jitter", type=float, default=0.3, metavar="PCT")
-    parser.add_argument(
-        "--aa",
-        type=str,
-        default="",
-        metavar="NAME",
-        help='"v0" or "original" or"rand-m9-mstd0.5-inc1"',
-    ),
+    parser.add_argument("--color_jitter", type=float, default=0.3)
+    parser.add_argument("--aa",type=str,default="",help='"v0" or "original" or"rand-m9-mstd0.5-inc1"'),
     parser.add_argument("--smoothing", type=float, default=0.1)
 
     # Evaluation parameters
@@ -91,22 +80,11 @@ def get_args_parser():
     parser.add_argument("--cutmix_minmax", type=float, nargs="+", default=None)
     parser.add_argument("--mixup_prob", type=float, default=1.0)
     parser.add_argument("--mixup_switch_prob", type=float, default=0.5)
-    parser.add_argument(
-        "--mixup_mode", type=str, default="batch", help='"batch", "pair", or "elem"'
-    )
+    parser.add_argument("--mixup_mode", type=str, default="batch", help='"batch", "pair", or "elem"')
 
     # Dataset parameters
-    parser.add_argument(
-        "--data_path",
-        default="/home/abelxiaoxing/work/datas/package/package_small",
-        type=str,
-    )
-    parser.add_argument(
-        "--train_split_rato",
-        default=0.,
-        type=float,
-        help="0为手动分割，其他0到1的浮点数为训练集自动分割的比例",
-    )
+    parser.add_argument("--data_path",default="../../datas/classification/CatsDogs_mini",type=str)
+    parser.add_argument("--train_split_rato",default=0.9,type=float,help="0为手动分割，其他0到1的浮点数为训练集自动分割的比例")
     parser.add_argument("--num_classes", default=2, type=int)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--seed", default=88, type=int)
@@ -119,42 +97,19 @@ def get_args_parser():
     parser.add_argument("--start_epoch", default=0, type=int)
     parser.add_argument("--eval", type=str2bool, default=False)
     parser.add_argument("--num_workers", default=12, type=int)
+    parser.add_argument("--use_amp",type=str2bool,default=True,help="Use PyTorch's AMP or not")
+
     # distributed training parameters
-    parser.add_argument(
-        "--world_size", default=1, type=int, help="number of distributed processes"
-    )
+    parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
     parser.add_argument("--local_rank", default=-1, type=int)
     parser.add_argument("--dist_on_itp", type=str2bool, default=False)
-    parser.add_argument(
-        "--dist_url", default="env://", help="url used to set up distributed training"
-    )
+    parser.add_argument("--dist_url", default="env://", help="url used to set up distributed training")
 
-    parser.add_argument(
-        "--use_amp",
-        type=str2bool,
-        default=True,
-        help="Use PyTorch's AMP (Automatic Mixed Precision) or not",
-    )
 
     # Weights and Biases arguments
-    parser.add_argument(
-        "--enable_wandb",
-        type=str2bool,
-        default=False,
-        help="enable logging to Weights and Biases",
-    )
-    parser.add_argument(
-        "--project",
-        default="classification",
-        type=str,
-        help="The name of the W&B project where you're sending the new run.",
-    )
-    parser.add_argument(
-        "--wandb_ckpt",
-        type=str2bool,
-        default=False,
-        help="Save model checkpoints as W&B Artifacts.",
-    )
+    parser.add_argument("--enable_wandb",type=str2bool,default=False,help="enable logging to Weights and Biases")
+    parser.add_argument("--project",default="classification",type=str,help="The name of the W&B project where you're sending the new run.")
+    parser.add_argument("--wandb_ckpt",type=str2bool,default=False,help="Save model checkpoints as W&B Artifacts.")
 
     return parser
 
@@ -170,8 +125,7 @@ def main(args):
     np.random.seed(seed)
     cudnn.benchmark = True
 
-    dataset_train, args.num_classes = build_dataset(is_train=True, args=args)
-    dataset_val, _ = build_dataset(is_train=False, args=args)
+    dataset_train,dataset_val, args.num_classes = build_dataset(args=args)
 
     num_tasks = utils.get_world_size()
     global_rank = utils.get_rank()
@@ -252,13 +206,11 @@ def main(args):
     model_ema = None
     if args.model_ema:
         # Important to create EMA model after cuda(), DP wrapper, and AMP but before SyncBN and DDP wrapper
-        model_ema = ModelEma(
+        model_ema = ModelEmaV3(
             model,
-            decay=args.model_ema_decay,
-            device="cpu" if args.model_ema_force_cpu else "",
-            resume="",
+            decay=0.999,
+            device=device,
         )
-        print("Using EMA with decay = %.8f" % args.model_ema_decay)
 
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -274,18 +226,6 @@ def main(args):
     print("Number of training examples = %d" % len(dataset_train))
     print("Number of training training per epoch = %d" % num_training_steps_per_epoch)
 
-    if args.layer_decay < 1.0 or args.layer_decay > 1.0:
-        num_layers = utils.get_num_layers(model)
-        assigner = LayerDecayValueAssigner(
-            list(
-                args.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)
-            )
-        )
-    else:
-        assigner = None
-
-    if assigner is not None:
-        print("Assigned values = %s" % str(assigner.values))
 
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(
@@ -294,11 +234,11 @@ def main(args):
         model_without_ddp = model.module
 
     optimizer = create_optimizer(
-        args,
-        model_without_ddp,
-        skip_list=None,
-        get_num_layer=assigner.get_layer_id if assigner is not None else None,
-        get_layer_scale=assigner.get_scale if assigner is not None else None,
+        opt = args.opt,
+        lr = args.lr,
+        weight_decay = args.weight_decay,
+        momentum = args.momentum,
+        model = model_without_ddp,
     )
 
     loss_scaler = NativeScaler()  # if args.use_amp is False, this won't be used
@@ -345,10 +285,8 @@ def main(args):
 
     if args.eval:
         print(f"Eval only mode")
-        test_stats = evaluate(data_loader_val, model, device, use_amp=args.use_amp)
-        print(
-            f"Accuracy of the network on {len(dataset_val)} test images: {test_stats['acc1']:.5f}%"
-        )
+        test_stats = evaluate(data_loader_val, model, device, num_classes=args.num_classes,use_amp=args.use_amp)
+        print(f"Accuracy of the network on {len(dataset_val)} test images: {test_stats['acc1']:.5f}%")
         return
 
     max_accuracy = 0.0
@@ -434,12 +372,8 @@ def main(args):
 
         # repeat testing routines for EMA, if ema eval is turned on
         if args.model_ema and args.model_ema_eval:
-            test_stats_ema = evaluate(
-                data_loader_val, model_ema.ema, device, use_amp=args.use_amp
-            )
-            print(
-                f"Accuracy of the model EMA on {len(dataset_val)} test images: {test_stats_ema['acc1']:.1f}%"
-            )
+            test_stats_ema = evaluate(data_loader_val, model_ema.module, device,args.num_classes, use_amp=args.use_amp)
+            print(f"Accuracy of the model EMA on {len(dataset_val)} test images: {test_stats_ema['acc1']:.1f}%")
             if max_accuracy_ema < test_stats_ema["acc1"]:
                 max_accuracy_ema = test_stats_ema["acc1"]
                 if args.save_ckpt:
