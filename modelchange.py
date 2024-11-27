@@ -21,7 +21,7 @@ def dynamic_quantize_model(model_weight_path, quantize_output_path, dtype, devic
 
 
 def pth2jit(
-        model_weight_path="train_cls/output/checkpoint-24.pth", 
+        model_weight_path="train_cls/output/checkpoint-best.pth", 
         device="cuda",
         jit_output_path="best_model.pth"
     ):
@@ -37,7 +37,7 @@ def pth2jit(
 def pth2onnx(
     model_weight_path="train_cls/output/checkpoint-best.pth",
     device="cuda",
-    onnx_output_path="best_model.onnx",
+    onnx_output_path="train_cls/output/checkpoint-best.onnx",
     simplify=False,
 ):
     # 加载模型
@@ -91,7 +91,7 @@ def onnx2trt(onnx_model_weight_path, trt_output_path):
 
 
 def pth2onnx_in_memory(
-    model_weight_path="train_det/11/output/checkpoint-best.pth",
+    model_weight_path="train_cls/output/checkpoint-best.pth",
     device="cuda",
     simplify=False,
 ):
@@ -144,25 +144,15 @@ def onnx2trt_in_memory(onnx_model, trt_output_path):
 
 # 把onnx转换的model放在内存直接trt转换
 def pth2trt(
-    model_weight_path="train_det/11/output/checkpoint-best.pth",
+    model_weight_path="train_cls/output/checkpoint-best.pth",
     device="cuda",
-    trt_output_path="best_model.trt",
+    trt_output_path="train_cls/output/checkpoint-best.trt",
     simplify=False,
 ):
     onnx_model = pth2onnx_in_memory(model_weight_path, device, simplify)
     onnx2trt_in_memory(onnx_model, trt_output_path)
 
 
-# 读取onnx文件的trt转换
-# def pth2trt(
-#     model_weight_path="train_det/11/output/checkpoint-best.pth",
-#     device="cuda",
-#     onnx_output_path="best_model.onnx",
-#     trt_output_path="best_model.trt",
-#     simplify=False,
-# ):
-#     pth2onnx(model_weight_path, device, onnx_output_path, simplify)
-#     onnx2trt(onnx_output_path, trt_output_path)
 
 if __name__ == "__main__":
     pth2onnx()

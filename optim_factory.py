@@ -47,8 +47,9 @@ def get_parameter_groups(model, weight_decay=1e-5):
     return list(parameter_group_vars.values())
 
 
-def create_optimizer(opt,lr,weight_decay,momentum, model, filter_bias_and_bn=True):
+def create_optimizer(opt,lr,weight_decay, model, filter_bias_and_bn=True):
     opt_lower = opt.lower()
+    momentum = 0.9
     if filter_bias_and_bn:
         parameters = get_parameter_groups(model, weight_decay)
         weight_decay = 0.

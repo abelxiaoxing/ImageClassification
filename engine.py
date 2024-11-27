@@ -2,7 +2,7 @@ import math
 from typing import Iterable, Optional
 import torch
 from timm.data import Mixup
-from timm.utils import accuracy, ModelEma
+from timm.utils import accuracy, ModelEmaV3
 from rich.progress import Progress
 import utils
 import time
@@ -10,7 +10,7 @@ import time
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
-                    model_ema: Optional[ModelEma] = None, mixup_fn: Optional[Mixup] = None, log_writer=None,
+                    model_ema: Optional[ModelEmaV3] = None, mixup_fn: Optional[Mixup] = None, log_writer=None,
                     wandb_logger=None, start_steps=None, lr_schedule_values=None, wd_schedule_values=None,
                     num_training_steps_per_epoch=None, update_freq=None, use_amp=False,num_classes=2):
 
@@ -61,17 +61,15 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 continue  # Skip this batch
                 # assert math.isfinite(loss_value)
 
-            if use_amp:
-                # this attribute is added by timm on one optimizer (adahessian)
+            if use_amp: 
                 is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
                 loss /= update_freq
-                grad_norm = loss_scaler(loss, optimizer, clip_grad=max_norm,
-                                        parameters=model.parameters(), create_graph=is_second_order,
-                                        update_grad=(data_iter_step + 1) % update_freq == 0)
+                grad_norm = loss_scaler(loss, optimizer, clip_grad=max_norm,parameters=model.parameters(), create_graph=is_second_order,update_grad=(data_iter_step + 1) % update_freq == 0)
                 if (data_iter_step + 1) % update_freq == 0:
                     optimizer.zero_grad()
                     if model_ema is not None:
                         model_ema.update(model)
+                        
             else: # full precision
                 loss /= update_freq
                 loss.backward()
@@ -157,12 +155,12 @@ def evaluate(data_loader, model, device, num_classes, use_amp=False):
     header = 'Val:'
 
     # 创建用于存储每类精确率和召回率的 Meter 对象
-    precision_meters = [utils.SmoothedValue(window_size=1, fmt='{value:.6f}') for _ in range(num_classes)]
-    recall_meters = [utils.SmoothedValue(window_size=1, fmt='{value:.6f}') for _ in range(num_classes)]
+    precision_meters = [utils.SmoothedValue(window_size=1, fmt='{value:.5f}') for _ in range(num_classes)]
+    recall_meters = [utils.SmoothedValue(window_size=1, fmt='{value:.5f}') for _ in range(num_classes)]
 
     # 添加平均精确率和召回率的 Meter 对象
-    metric_logger.add_meter('avg_precision', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    metric_logger.add_meter('avg_recall', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    metric_logger.add_meter('avg_precision', utils.SmoothedValue(window_size=1, fmt='{value:.5f}'))
+    metric_logger.add_meter('avg_recall', utils.SmoothedValue(window_size=1, fmt='{value:.5f}'))
 
     # 切换到评估模式
     model.eval()
@@ -192,7 +190,7 @@ def evaluate(data_loader, model, device, num_classes, use_amp=False):
             false_positives[i] += torch.sum((preds == i) & (target != i)).item()
             false_negatives[i] += torch.sum((preds != i) & (target == i)).item()
 
-        acc1, acc5 = accuracy(output, target, topk=(1, 2))
+        acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
         batch_size = images.shape[0]
         metric_logger.update(loss=loss.item())

@@ -533,7 +533,7 @@ def piecewise_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_ep
     assert len(schedule) == epochs * niter_per_ep
     return schedule
             
-def save_model(args,input_shape, epoch, model, optimizer, loss_scaler, model_ema=None):
+def save_model(args,input_shape, epoch, model, optimizer, loss_scaler, model_ema, num_classes):
     epoch_name = str(epoch)
     output_dir = Path("./train_cls/output")
     checkpoint_paths = [output_dir / ("checkpoint-%s.pth" % epoch_name)]
@@ -544,12 +544,11 @@ def save_model(args,input_shape, epoch, model, optimizer, loss_scaler, model_ema
             "epoch": epoch,  # 保存当前轮次
             'scaler': loss_scaler.state_dict(),
             "input_shape": input_shape, # 保存输入形状
+            "num_classes": num_classes,
             "args": args,  # 保存命令行参数
         }
         if model_ema is not None:
-            to_save["model_ema"] = get_state_dict(
-                model_ema
-            )  # 如果有指数移动平均模型，保存其状态
+            to_save["model_ema"] = get_state_dict(model_ema)  # 保存指数移动平均模型
         save_on_master(to_save, checkpoint_path)
 
     if is_main_process() and isinstance(epoch, int):
@@ -575,14 +574,14 @@ def auto_load_model(args,model_without_ddp, optimizer, loss_scaler, model_ema=No
 
     if args.resume:
         if args.resume.startswith('https'):
-            checkpoint = torch.hub.load_state_dict_from_url(
-                args.resume, map_location='cpu', check_hash=True)
+            checkpoint = torch.hub.load_state_dict_from_url(args.resume, map_location='cpu', check_hash=True)
+            # 删除head层权重
+            for k in list(checkpoint["model"].keys()):
+                if "head" in k:
+                    del checkpoint["model"][k]
         else:
             checkpoint = torch.load(args.resume, map_location='cpu',weights_only=False)
-        # 删除head层权重
-        # for k in list(checkpoint["model"].keys()):
-        #     if "head" in k:
-        #         del checkpoint["model"][k]
+
         model_without_ddp.load_state_dict(checkpoint['model'].state_dict(),strict=True)
         print("Resume checkpoint %s" % args.resume)
         if 'optimizer' in checkpoint and 'epoch' in checkpoint:

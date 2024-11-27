@@ -1,3 +1,14 @@
+## 更新说明
+### 20241127
++ 新增集群训练run_with_submitit.py
++ 新增模型转换model_change.py，实现onnx,pth,trt模型相互转换
++ train.py移除分类任务中num_classes参数，自动读取文件夹内的类别数量
++ 为便于分享减少手动设置参数，修改模型保存方式，只保存权重改为保存整个模型
++ train.py更新model_ema方法，加快了速度
++ val.py新增参数model_ema，决定采用原始模型推理还是采用ema权重推理,如果权重中没有保存model_ema即使推理采用model_ema也将使用原始权重推理
++ 提高optim_factory的自动化程度，非关键参数改为默认
+
+
 ## 基于pytorch的深度学习图像分类框架使用简介
 1. 下载好数据集，代码中默认使用的是迷你猫狗分类数据集，下载地址:  [迷你猫狗分类数据集](https://pan.baidu.com/s/16SPmrN_PUUTWQuxtRXZmrA?pwd=abel) 提取码: abel  
 ### 训练
@@ -10,9 +21,10 @@
 4. 设置好数据集的路径`--data-path`以及预训练权重的路径`--weights`就能使用`train.py`脚本开始训练了(训练过程中会自动生成`class_indices.json`文件)
 5. 若需要自己划分好数据集并在所填的data_path路径后划分为train和val,则设置data_custom为True。
 ### val.py
-1. 在`predict.py`脚本中导入和训练脚本中同样的模型，并将`model_weight_path`设置成训练好的模型权重路径(默认保存在weights文件夹下)
-2. 在`predict.py`脚本中将`img_path`设置成你自己需要预测的图片绝对路径
-3. 设置好权重路径`model_weight_path`和预测的图片路径`img_path`就能使用`predict.py`脚本进行预测了
+1. 在`val.py`脚本中导入和训练脚本中同样的模型，并将`model_weight_path`设置成训练好的模型权重路径(默认保存在weights文件夹下)
+2. 在`val.py`脚本中将`img_path`设置成你自己需要预测的图片文件夹绝对路径
+3. 设置好权重路径`model_weight_path`和预测的图片路径`img_path`就能使用`val.py`脚本进行预测了
+4. 选择val_move和val_precision执行，val_move为预测该文件夹的图片并进行分类，val_precision为预测包含类别的文件夹并给出精确率
 ### Others
 + 如果要使用自己的数据集，请按照花分类数据集的文件结构进行摆放(即一个类别对应一个文件夹)，并且将训练以及预测脚本中的`num_classes`设置成你自己数据的类别数
 ### todo

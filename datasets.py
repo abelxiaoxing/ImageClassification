@@ -7,12 +7,8 @@ from timm.data import create_transform
 from abel_augmentations import AbelAugment
 import json
 from pathlib import Path
-from torch.utils.data import random_split
-from PIL import Image
-import cv2
-import numpy as np
 
-# 将数据集划分为训练集和验证集，确保每个类别的样本数量相等。
+# 将数据集划分为训练集和验证集，确保验证集每个类别的样本数量相等。
 def split_dataset(root, train_ratio=0.5):
     dataset = datasets.ImageFolder(root)
     class_indices = dataset.class_to_idx
@@ -56,13 +52,6 @@ def split_dataset(root, train_ratio=0.5):
 
     return train_dataset, val_dataset, class_indices
 
-# # 随机分割数据集为训练集和验证集
-# def split_dataset(root, train_ratio=0.9):
-#     dataset = datasets.ImageFolder(root) 
-#     num_train = int(len(dataset) * train_ratio)
-#     num_val = len(dataset) - num_train
-#     train_dataset, val_dataset = random_split(dataset, [num_train, num_val])
-#     return train_dataset, val_dataset, dataset.class_to_idx
 
 # 构建数据集
 def build_dataset(args):
@@ -109,7 +98,7 @@ def build_dataset(args):
         )
         with open(Path("./train_cls/output/class_indices.json"), "w") as f:
             f.write(json_str)
-        num_classes = len(dataset.class_to_idx)
+        num_classes = len(train_dataset.class_to_idx)
     else:  # 如果数据集是自动生成
         dataset_root = args.data_path
         train_ratio = args.train_split_rato
@@ -130,10 +119,6 @@ def build_dataset(args):
 
 
 def build_transform(is_train, args):
-    resize_im = args.input_size > 32
-    mean = IMAGENET_DEFAULT_MEAN
-    std = IMAGENET_DEFAULT_STD
-
     if is_train:
         transform = []
         transform = create_transform(
@@ -148,32 +133,12 @@ def build_transform(is_train, args):
             re_prob=args.reprob,
             re_mode=args.remode,
             re_count=args.recount,
-            mean=mean,
-            std=std,
         )
-        if not resize_im:
-            transform.transforms[0] = transforms.RandomCrop(args.input_size, padding=4)
         return transform
-
-    t = []
-    if resize_im:
-        if args.input_size >= 384:
-            t.append(
-                transforms.Resize(
-                    (args.input_size, args.input_size),
-                    interpolation=transforms.InterpolationMode.BICUBIC,
-                ),
-            )
-            print(f"Warping {args.input_size} size input images...")
-        else:
-            if args.crop_pct is True:
-                t.append(transforms.CenterCrop(args.input_size))
-            size = args.input_size
-            t.append(
-                transforms.Resize(
-                    [size, size], interpolation=transforms.InterpolationMode.BICUBIC
-                ),
-            )
-    t.append(transforms.ToTensor())
-    t.append(transforms.Normalize(mean, std))
-    return transforms.Compose(t)
+    else :
+        t = []
+        size = args.input_size
+        t.append(transforms.Resize([size, size]))
+        t.append(transforms.ToTensor())
+        t.append(transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD))
+        return transforms.Compose(t)
