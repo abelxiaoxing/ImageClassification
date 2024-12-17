@@ -5,7 +5,7 @@ from io import BytesIO
 import torch.quantization as quant
 
 def dynamic_quantize_model(model_weight_path, quantize_output_path, dtype, device):
-    model = torch.load(model_weight_path, map_location=device)["model"]
+    model = torch.load(model_weight_path, map_location=device,weights_only=False)["model"]
     if dtype == 8:
         quantized_model = quant.quantize_dynamic(
             model, {torch.nn.Linear}, dtype=torch.qint8
@@ -22,10 +22,10 @@ def dynamic_quantize_model(model_weight_path, quantize_output_path, dtype, devic
 
 def pth2jit(
         model_weight_path="train_cls/output/checkpoint-best.pth", 
+        jit_output_path="best_model.pth",
         device="cuda",
-        jit_output_path="best_model.pth"
     ):
-    checkpoint = torch.load(model_weight_path, map_location=device) 
+    checkpoint = torch.load(model_weight_path, map_location=device,weights_only=False) 
     model = checkpoint["model"]
     model.eval()
     input_shape = checkpoint["input_shape"]
@@ -41,7 +41,7 @@ def pth2onnx(
     simplify=False,
 ):
     # 加载模型
-    checkpoint = torch.load(model_weight_path, map_location=device)
+    checkpoint = torch.load(model_weight_path, map_location=device,weights_only=False)
     model = checkpoint["model"]
     model.eval()
     input_shape = checkpoint["input_shape"]
@@ -96,7 +96,7 @@ def pth2onnx_in_memory(
     simplify=False,
 ):
     # Load the PyTorch model
-    checkpoint = torch.load(model_weight_path, map_location=device)
+    checkpoint = torch.load(model_weight_path, map_location=device,weights_only=False)
     model = checkpoint["model"]
     model.eval()
     input_shape = checkpoint["input_shape"]
@@ -152,7 +152,15 @@ def pth2trt(
     onnx_model = pth2onnx_in_memory(model_weight_path, device, simplify)
     onnx2trt_in_memory(onnx_model, trt_output_path)
 
+def convert_model_ema_to_model(model_weight_path, output_path):
+    checkpoint = torch.load(model_weight_path, map_location="cpu",weights_only=False)
+    checkpoint["model"].load_state_dict(checkpoint["model_ema"])
+    checkpoint.pop("model_ema", None)
+    checkpoint.pop("optimizer", None)
+    checkpoint.pop("scaler", None)
+    torch.save(checkpoint, output_path)
+    print(f"Converted checkpoint saved to: {output_path}")
 
 
 if __name__ == "__main__":
-    pth2onnx()
+    convert_model_ema_to_model("","")

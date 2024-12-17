@@ -575,27 +575,41 @@ def auto_load_model(args,model_without_ddp, optimizer, loss_scaler, model_ema=No
     if args.resume:
         if args.resume.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(args.resume, map_location='cpu', check_hash=True)
-            # 删除head层权重
-            for k in list(checkpoint["model"].keys()):
-                if "head" in k:
-                    del checkpoint["model"][k]
+            state_dict = checkpoint["model"]
         else:
-            checkpoint = torch.load(args.resume, map_location='cpu',weights_only=False)
+            print(args.resume)
+            checkpoint = torch.load(args.resume, map_location='cpu',weights_only=False) 
+            state_dict = checkpoint["model"].state_dict()
 
-        model_without_ddp.load_state_dict(checkpoint['model'].state_dict(),strict=True)
+        # 获取模型当前的state_dict，用于比对
+        model_state_dict = model_without_ddp.state_dict()
+        new_state_dict = {}
+        missing_nums = 0
+        for k, v in state_dict.items():
+            if k in model_state_dict and v.shape == model_state_dict[k].shape: # 检查key和shape
+                new_state_dict[k] = v
+            else:
+                print(f"Skipping mismatched key: {k}") # 打印跳过的key
+                missing_nums += 1
+
+        model_without_ddp.load_state_dict(new_state_dict, strict=False) # strict=False保留，处理部分匹配的情况
         print("Resume checkpoint %s" % args.resume)
-        if 'optimizer' in checkpoint and 'epoch' in checkpoint:
+
+
+        if args.model_ema:
+            if 'model_ema' in checkpoint.keys() and missing_nums == 0:
+                model_ema.module.load_state_dict(checkpoint['model_ema'])
+            else:
+                model_ema.set(model_without_ddp)
+                
+        if 'optimizer' in checkpoint and 'epoch' in checkpoint and missing_nums == 0:
             optimizer.load_state_dict(checkpoint['optimizer'])
             if not isinstance(checkpoint['epoch'], str): # does not support resuming with 'best', 'best-ema'
                 args.start_epoch = checkpoint['epoch'] + 1
             else:
                 assert args.eval, 'Does not support resuming with checkpoint-best'
-            if hasattr(args, 'model_ema') and args.model_ema:
-                if 'model_ema' in checkpoint.keys():
-                    model_ema.module.load_state_dict(checkpoint['model_ema'])
-                else:
-                    model_ema.module.load_state_dict(checkpoint['model'])
+
             if 'scaler' in checkpoint:
                 loss_scaler.load_state_dict(checkpoint['scaler'])
             print("With optim & sched!")
-    return model_without_ddp
+    return 

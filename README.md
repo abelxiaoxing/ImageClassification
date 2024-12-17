@@ -1,4 +1,10 @@
 ## 更新说明
+### 20241217
++ modelchange.py新增model_ema转化为标准模型，权重中"model_ema"改为"model"
++ 修复当model_ema为True时,恢复的权重文件中无model_ema时的权重加载问题
++ 启用mixup时,也可以查看train数据集的准确率
++ 分类任务时模型权重不匹配模型文件时,打印不匹配的层,自动剔除不匹配层(迁移学习等无需手动剔除最后一层)
+
 ### 20241127
 + 新增集群训练run_with_submitit.py
 + 新增模型转换model_change.py，实现onnx,pth,trt模型相互转换

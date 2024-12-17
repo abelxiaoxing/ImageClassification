@@ -33,11 +33,11 @@ def get_args_parser():
     parser = argparse.ArgumentParser(
         "Training and evaluation script for image classification", add_help=False
     )
-    parser.add_argument("--batch_size", default=128, type=int)
+    parser.add_argument("--batch_size", default=64, type=int)
     parser.add_argument("--epochs", default=100, type=int)
     parser.add_argument("--update_freq", default=1, type=int)
     # Model parameters
-    parser.add_argument("--pretrained", default=False, type=bool)
+    parser.add_argument("--pretrained", default=True, type=bool)
     parser.add_argument("--model", default="efficientvit_m0", type=str, metavar="MODEL")
     parser.add_argument("--drop_path", type=float, default=0.05, metavar="PCT")
     parser.add_argument("--input_size", default=224, type=int)
@@ -69,7 +69,7 @@ def get_args_parser():
     parser.add_argument("--resplit", type=str2bool, default=False)
 
     # * Mixup params
-    parser.add_argument("--mixup", type=float, default=0.0)
+    parser.add_argument("--mixup", type=float, default=0.8)
     parser.add_argument("--cutmix", type=float, default=0.0)
     parser.add_argument("--cutmix_minmax", type=float, nargs="+", default=None)
     parser.add_argument("--mixup_prob", type=float, default=1.0)
@@ -77,8 +77,8 @@ def get_args_parser():
     parser.add_argument("--mixup_mode", type=str, default="batch", help='"batch", "pair", or "elem"')
 
     # Dataset parameters
-    parser.add_argument("--data_path",default="",type=str)
-    parser.add_argument("--train_split_rato",default=0.,type=float,help="0为手动分割，其他0到1的浮点数为训练集自动分割的比例")
+    parser.add_argument("--data_path",default="../../datas/CatsDogs_mini",type=str)
+    parser.add_argument("--train_split_rato",default=0.9,type=float,help="0为手动分割，其他0到1的浮点数为训练集自动分割的比例")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--seed", default=88, type=int)
     parser.add_argument("--resume", default="")
@@ -198,12 +198,12 @@ def main(args):
     model_ema = None
     if args.model_ema:
         # Important to create EMA model after cuda(), DP wrapper, and AMP but before SyncBN and DDP wrapper
-        model_ema = ModelEmaV3(model,decay=0.999,device=device,)
+        model_ema = ModelEmaV3(model,decay=0.9995,device=device,)
 
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    print(f"Model = {str(model_without_ddp)}")
+    # print(f"Model = {str(model_without_ddp)}")
     print("number of params:", n_parameters)
 
     total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()

@@ -6,7 +6,7 @@ from timm.utils import accuracy, ModelEmaV3
 from rich.progress import Progress
 import utils
 import time
-
+                                       
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
@@ -16,8 +16,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     model.train(True)
     metric_logger = utils.MetricLogger(delimiter="  ")
-    # metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    # metric_logger.add_meter('min_lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     optimizer.zero_grad()
     start_time = time.time()
     true_positives = [0] * num_classes
@@ -39,8 +37,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     if wd_schedule_values is not None and param_group["weight_decay"] > 0:
                         param_group["weight_decay"] = wd_schedule_values[it]
 
-            samples = samples.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
+            samples,original_samples = samples.to(device, non_blocking=True),samples.to(device, non_blocking=True)
+            targets,original_targets = targets.to(device, non_blocking=True),targets.to(device, non_blocking=True)
 
             if mixup_fn is not None:
                 samples, targets = mixup_fn(samples, targets)
@@ -49,17 +47,16 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 with torch.amp.autocast('cuda'):
                     output = model(samples)
                     loss = criterion(output, targets)
-            else: # full precision
+            else:
                 output = model(samples)
                 loss = criterion(output, targets)
 
             loss_value = loss.item()
 
-            if not math.isfinite(loss_value): # this could trigger if using AMP
+            if not math.isfinite(loss_value):
                 print("Loss is {}, stopping training".format(loss_value))
-                optimizer.zero_grad()  # Reset gradients
-                continue  # Skip this batch
-                # assert math.isfinite(loss_value)
+                optimizer.zero_grad()
+                continue
 
             if use_amp: 
                 is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
@@ -70,7 +67,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     if model_ema is not None:
                         model_ema.update(model)
                         
-            else: # full precision
+            else: 
                 loss /= update_freq
                 loss.backward()
                 if (data_iter_step + 1) % update_freq == 0:
@@ -90,7 +87,15 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     false_negatives[i] += torch.sum((preds != i) & (targets == i)).item()
                 class_acc = (output.max(-1)[-1] == targets).float().mean()
             else:
-                class_acc = None
+                with torch.no_grad():
+                    original_output = model(original_samples)
+                    _, preds = torch.max(original_output, 1)
+                    for i in range(num_classes):
+                        true_positives[i] += torch.sum((preds == i) & (original_targets == i)).item()
+                        false_positives[i] += torch.sum((preds == i) & (original_targets != i)).item()
+                        false_negatives[i] += torch.sum((preds != i) & (original_targets == i)).item()
+                    class_acc = (original_output.max(-1)[-1] == original_targets).float().mean()
+                    
             metric_logger.update(loss=loss_value)
             metric_logger.update(class_acc=class_acc)
             min_lr = 10.
@@ -99,15 +104,10 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 min_lr = min(min_lr, group["lr"])
                 max_lr = max(max_lr, group["lr"])
 
-            # metric_logger.update(lr=max_lr)
-            # metric_logger.update(min_lr=min_lr)
             weight_decay_value = None
             for group in optimizer.param_groups:
                 if group["weight_decay"] > 0:
                     weight_decay_value = group["weight_decay"]
-            # metric_logger.update(weight_decay=weight_decay_value)
-            # if use_amp:
-            #     metric_logger.update(grad_norm=grad_norm)
 
             if log_writer is not None:
                 log_writer.update(loss=loss_value, head="loss")
@@ -172,7 +172,6 @@ def evaluate(data_loader, model, device, num_classes, use_amp=False):
         images = images.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
 
-        # 计算输出
         if use_amp:
             with torch.amp.autocast('cuda'):
                 output = model(images)
